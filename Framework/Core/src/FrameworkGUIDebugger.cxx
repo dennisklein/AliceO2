@@ -12,21 +12,10 @@
 #include "DebugGUI/imgui.h"
 #include <set>
 #include <algorithm>
+#include <FairMQLogger.h>
 
 namespace o2 {
 namespace framework {
-
-struct DeviceGUIState {
-  std::string label;
-};
-
-struct WorkspaceGUIState {
-  int selectedMetric;
-  std::vector<std::string> availableMetrics;
-  std::vector<DeviceGUIState> devices;
-};
-
-static WorkspaceGUIState gState;
 
 void
 optionsTable(const DeviceSpec &spec, const DeviceControl &control) {
@@ -231,8 +220,6 @@ displayDeviceHistograms(const std::vector<DeviceInfo> &infos,
                         const std::vector<DeviceSpec> &devices,
                         std::vector<DeviceControl> &controls,
                         const std::vector<DeviceMetricsInfo> &metricsInfos) {
-  bool graphNodes = true;
-  showTopologyNodeGraph(&graphNodes, infos, devices);
   ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetIO().DisplaySize.y - 300), 0);
   ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, 300), 0);
 
@@ -303,13 +290,71 @@ displayDeviceHistograms(const std::vector<DeviceInfo> &infos,
   ImGui::End();
 }
 
+void displayDeviceInspectors(const std::vector<DeviceInfo> &infos,
+                             const std::vector<DeviceSpec> &devices,
+                             const std::vector<DeviceMetricsInfo> &metricsInfos,
+                             std::vector<DeviceControl> &controls) {
+int windowPosStepping = (ImGui::GetIO().DisplaySize.y - 500) / gState.devices.size();
+for (size_t i = 0; i < gState.devices.size(); ++i) {
+  DeviceGUIState &state = gState.devices[i];
+  const DeviceInfo &info = infos[i];
+  const DeviceSpec &spec = devices[i];
+
+  DeviceControl &control = controls[i];
+  ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x/3*2, i*windowPosStepping), ImGuiSetCond_Once);
+  ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x/3, ImGui::GetIO().DisplaySize.y - 300), ImGuiSetCond_Once);
+  if (!info.active) {
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.9,0,0,1));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(1,0,0,1));
+    ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, ImVec4(1,0,0,1));
+  }
+  ImGui::Begin(state.label.c_str());
+  if (ImGui::CollapsingHeader("Channels")) {
+    ImGui::Text("# channels: %lu", spec.channels.size());
+    ImGui::Columns(2);
+    ImGui::TextUnformatted("Name");
+    ImGui::NextColumn();
+    ImGui::TextUnformatted("Port");
+    ImGui::NextColumn();
+    for (auto channel : spec.channels) {
+      ImGui::TextUnformatted(channel.name.c_str());
+      ImGui::NextColumn();
+      ImGui::Text("%d", channel.port);
+      ImGui::NextColumn();
+    }
+    ImGui::Columns(1);
+  }
+  optionsTable(spec, control);
+  if (ImGui::CollapsingHeader("Logs", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Checkbox("Stop logging", &control.quiet);
+    ImGui::InputText("Log filter", control.logFilter, sizeof(control.logFilter));
+    assert(sizeof(control.logStartTrigger) == 256);
+    assert(sizeof(control.logStopTrigger) == 256);
+    ImGui::InputText("Log start trigger", control.logStartTrigger, sizeof(control.logStartTrigger));
+    ImGui::InputText("Log stop trigger", control.logStopTrigger, sizeof(control.logStopTrigger));
+
+    ImGui::Separator();
+    ImGui::BeginChild("ScrollingRegion", ImVec2(0,-ImGui::GetItemsLineHeightWithSpacing()), false, ImGuiWindowFlags_HorizontalScrollbar);
+    displayHistory(info, control);
+    ImGui::EndChild();
+  }
+  ImGui::End();
+  if (!info.active) {
+    ImGui::PopStyleColor(3);
+  }
+}
+}
+
 // FIXME: return empty function in case we were not built
 // with GLFW support.
 std::function<void(void)>
 getGUIDebugger(const std::vector<DeviceInfo> &infos,
                const std::vector<DeviceSpec> &devices,
                const std::vector<DeviceMetricsInfo> &metricsInfos,
-               std::vector<DeviceControl> &controls
+               std::vector<DeviceControl> &controls,
+               basio::io_service& ios,
+               bp::environment& ddsEnv,
+               dds::intercom_api::CCustomCmd& ddsCustomCmd
                ) {
   gState.selectedMetric = -1;
   // FIXME: this should probaly have a better mapping between our window state and
@@ -318,63 +363,17 @@ getGUIDebugger(const std::vector<DeviceInfo> &infos,
     DeviceGUIState &state = gState.devices[i];
     const DeviceSpec &spec = devices[i];
     const DeviceInfo &info = infos[i];
-    state.label = devices[i].id + "(" + std::to_string(info.pid) + ")";
+    state.label = devices[i].id + "(" + std::to_string(info.pid()) + ")";
   }
 
-  return [&infos, &devices, &controls, &metricsInfos]() {
+  return [&]() {
     ImGuiStyle &style = ImGui::GetStyle();
     style.Colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.09f, 0.09f, 1.00f);
 
-    displayDeviceHistograms(infos, devices, controls, metricsInfos);
-    int windowPosStepping = (ImGui::GetIO().DisplaySize.y - 500) / gState.devices.size();
-    for (size_t i = 0; i < gState.devices.size(); ++i) {
-      DeviceGUIState &state = gState.devices[i];
-      const DeviceInfo &info = infos[i];
-      const DeviceSpec &spec = devices[i];
-
-      DeviceControl &control = controls[i];
-      ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x/3*2, i*windowPosStepping), ImGuiSetCond_Once);
-      ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x/3, ImGui::GetIO().DisplaySize.y - 300), ImGuiSetCond_Once);
-      if (!info.active) {
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.9,0,0,1));
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(1,0,0,1));
-        ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, ImVec4(1,0,0,1));
-      }
-      ImGui::Begin(state.label.c_str());
-      if (ImGui::CollapsingHeader("Channels")) {
-        ImGui::Text("# channels: %lu", spec.channels.size());
-        ImGui::Columns(2);
-        ImGui::TextUnformatted("Name");
-        ImGui::NextColumn();
-        ImGui::TextUnformatted("Port");
-        ImGui::NextColumn();
-        for (auto channel : spec.channels) {
-          ImGui::TextUnformatted(channel.name.c_str());
-          ImGui::NextColumn();
-          ImGui::Text("%d", channel.port);
-          ImGui::NextColumn();
-        }
-        ImGui::Columns(1);
-      }
-      optionsTable(spec, control);
-      if (ImGui::CollapsingHeader("Logs", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Checkbox("Stop logging", &control.quiet);
-        ImGui::InputText("Log filter", control.logFilter, sizeof(control.logFilter));
-        assert(sizeof(control.logStartTrigger) == 256);
-        assert(sizeof(control.logStopTrigger) == 256);
-        ImGui::InputText("Log start trigger", control.logStartTrigger, sizeof(control.logStartTrigger));
-        ImGui::InputText("Log stop trigger", control.logStopTrigger, sizeof(control.logStopTrigger));
-
-        ImGui::Separator();
-        ImGui::BeginChild("ScrollingRegion", ImVec2(0,-ImGui::GetItemsLineHeightWithSpacing()), false, ImGuiWindowFlags_HorizontalScrollbar);
-        displayHistory(info, control);
-        ImGui::EndChild();
-      }
-      ImGui::End();
-      if (!info.active) {
-        ImGui::PopStyleColor(3);
-      }
-    }
+    bool graphNodes = true;
+    showTopologyNodeGraph(&graphNodes, infos, devices, ios, ddsEnv, ddsCustomCmd);
+    // displayDeviceHistograms(infos, devices, controls, metricsInfos);
+    // displayDeviceInspectors(infos, devices, controls, metricsInfos);
   };
 }
 

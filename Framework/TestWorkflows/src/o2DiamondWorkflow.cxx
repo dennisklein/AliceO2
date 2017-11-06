@@ -26,39 +26,39 @@ AlgorithmSpec simplePipe(o2::Header::DataDescription what) {
 void defineDataProcessing(WorkflowSpec &specs) {
   WorkflowSpec workflow = {
   {
-    "A",
+    "Sampler",
     Inputs{},
     Outputs{
-      {"TST", "A1", OutputSpec::Timeframe},
-      {"TST", "A2", OutputSpec::Timeframe}
+      {"TST", "Sampler1", OutputSpec::Timeframe},
+      {"TST", "Sampler2", OutputSpec::Timeframe}
     },
     AlgorithmSpec{
       [](const std::vector<DataRef> inputs,
          ServiceRegistry& services,
          DataAllocator& allocator) {
        sleep(1);
-       auto aData = allocator.newCollectionChunk<int>(OutputSpec{"TST", "A1", 0}, 1);
-       auto bData = allocator.newCollectionChunk<int>(OutputSpec{"TST", "A2", 0}, 1);
+       auto aData = allocator.newCollectionChunk<int>(OutputSpec{"TST", "Sampler1", 0}, 1);
+       auto bData = allocator.newCollectionChunk<int>(OutputSpec{"TST", "Sampler2", 0}, 1);
       }
     }
   },
   {
-    "B",
-    Inputs{{"TST", "A1", InputSpec::Timeframe}},
-    Outputs{{"TST", "B1", OutputSpec::Timeframe}},
-    simplePipe(o2::Header::DataDescription{"B1"})
+    "Processor1",
+    Inputs{{"TST", "Sampler1", InputSpec::Timeframe}},
+    Outputs{{"TST", "Processor1", OutputSpec::Timeframe}},
+    simplePipe(o2::Header::DataDescription{"Processor1"})
   },
   {
-    "C",
-    Inputs{{"TST", "A2", InputSpec::Timeframe}},
-    Outputs{{"TST", "C1", OutputSpec::Timeframe}},
-    simplePipe(o2::Header::DataDescription{"C1"})
+    "Processor2",
+    Inputs{{"TST", "Sampler2", InputSpec::Timeframe}},
+    Outputs{{"TST", "Processor2", OutputSpec::Timeframe}},
+    simplePipe(o2::Header::DataDescription{"Processor2"})
   },
   {
-    "D",
+    "Sink",
     Inputs{
-      {"TST", "B1", InputSpec::Timeframe},
-      {"TST", "C1", InputSpec::Timeframe},
+      {"TST", "Processor1", InputSpec::Timeframe},
+      {"TST", "Processor2", InputSpec::Timeframe},
     },
     Outputs{},
     AlgorithmSpec{

@@ -33,7 +33,7 @@ struct PhysicalChannel {
 };
 
 inline LogicalChannel outputSpec2LogicalChannel(const OutputSpec &spec) {
-  return LogicalChannel{std::string("out_") + spec.origin.str + "_" + spec.description.str};
+  return LogicalChannel{std::string{spec.origin.str} + "_" + spec.description.str};
 }
 
 inline PhysicalChannel outputSpec2PhysicalChannel(const OutputSpec &spec, int count) {
@@ -43,7 +43,7 @@ inline PhysicalChannel outputSpec2PhysicalChannel(const OutputSpec &spec, int co
 }
 
 inline LogicalChannel inputSpec2LogicalChannelMatcher(const InputSpec &spec) {
-  return LogicalChannel{std::string("out_") + spec.origin.str + "_" + spec.description.str};
+  return LogicalChannel{std::string{spec.origin.str} + "_" + spec.description.str};
 }
 
 inline PhysicalChannel inputSpec2PhysicalChannelMatcher(const InputSpec&spec, int count) {

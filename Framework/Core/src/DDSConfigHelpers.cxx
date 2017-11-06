@@ -16,29 +16,41 @@ namespace o2 {
 namespace framework {
 
 void
-dumpDeviceSpec2DDS(std::ostream &out, const std::vector<DeviceSpec> &specs)
+deviceSpecs2DDSTopology(std::ostream &out, const std::vector<DeviceSpec> &specs)
 {
-  out << R"(<topology id="o2-dataflow">)" "\n";
+  out << "<topology id=\"o2-dataflow\">" << std::endl;
+  for (auto &spec : specs) {
+    for (const auto& cs : spec.channels) {
+      if (cs.method == ChannelMethod::Bind) {
+        out << "  <property id=\"" << cs.name << "\" />" << std::endl;
+      }
+    }
+  }
+  out << std::endl;
   for (auto &spec : specs) {
     auto id = spec.id;
     std::replace(id.begin(), id.end(), '-', '_'); // replace all 'x' to 'y'
-    out << "   " << R"(<decltask id=")" << id << R"(">)" "\n";
-    out << "       " << R"(<exe reachable="true">)";
+    out << "  <decltask id=\"" << id << "\">" << std::endl;
+    out << "    <exe reachable=\"true\"><![CDATA[/usr/bin/bash -c \"eval `alienv load O2/latest` && ";
     for (size_t ai = 0; ai < spec.args.size(); ++ai) {
       const char *arg = spec.args[ai];
-      if (!arg) {
-        break;
-      }
-      // Do not print out channel information
-      if (strcmp(arg, "--channel-config") == 0) {
-        ai++;
-        continue;
-      }
+      if (!arg) { break; }
       out << arg << " ";
     }
-    out << "</exe>\n";
-    out << "   </decltask>\n";
+    out << "\"]]></exe>" << std::endl;
+    out << "    <properties>" << std::endl;
+    for (const auto& cs : spec.channels) {
+      out << "      <id access=\"" << std::string{(cs.method == ChannelMethod::Bind) ? "write" : "read"}<< "\">" << cs.name << "</id>" << std::endl;
+    }
+    out << "    </properties>" << std::endl;
+    out << "  </decltask>" << std::endl;
   }
+  out << std::endl;
+  out << "  <main id=\"main\">" << std::endl;
+  for (auto &spec : specs) {
+    out << "    <task>" << spec.id << "</task>" << std::endl;
+  }
+  out << "  </main>" << std::endl;
   out << "</topology>\n";
 }
 

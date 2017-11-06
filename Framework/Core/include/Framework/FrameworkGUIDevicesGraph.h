@@ -11,6 +11,7 @@
 #define FRAMEWORK_FRAMEWORKGUIDEVICEGRAPH_H
 #include "Framework/DeviceSpec.h"
 #include "Framework/DeviceInfo.h"
+#include "Framework/FrameworkGUIDebugger.h"
 
 #include <vector>
 
@@ -19,7 +20,10 @@ namespace framework {
 
 void showTopologyNodeGraph(bool* opened,
                            const std::vector<DeviceInfo> &infos,
-                           const std::vector<DeviceSpec> &specs);
+                           const std::vector<DeviceSpec> &specs,
+                           basio::io_service& ios,
+                           bp::environment& ddsEnv,
+                           dds::intercom_api::CCustomCmd& ddsCustomCmd);
 
 } // namespace framework
 } // namespace o2

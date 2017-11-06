@@ -24,7 +24,6 @@
 #include "Framework/LocalRootFileService.h"
 #include "Framework/TextControlService.h"
 
-#include "GraphvizHelpers.h"
 #include "DDSConfigHelpers.h"
 #include "options/FairMQProgOptions.h"
 
@@ -33,11 +32,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <map>
 #include <regex>
 #include <set>
 #include <string>
+#include <vector>
 
 #include <getopt.h>
 #include <csignal>
@@ -48,44 +51,25 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-
 #include <fairmq/DeviceRunner.h>
+
+#include <boost/process.hpp>
+namespace bp = boost::process;
+#include <boost/filesystem.hpp>
+namespace bfs = boost::filesystem;
+#include <boost/asio.hpp>
+namespace basio = boost::asio;
+#include <thread>
+#include <functional>
+#include <regex>
+
+#include <dds_intercom.h>
 
 using namespace o2::framework;
 
 std::vector<DeviceInfo> gDeviceInfos;
 std::vector<DeviceMetricsInfo> gDeviceMetricsInfos;
 std::vector<DeviceControl> gDeviceControls;
-
-// Read from a given fd and print it.
-// return true if we can still read from it,
-// return false if we need to close the input pipe.
-//
-// FIXME: We should really print full lines.
-bool getChildData(int infd, DeviceInfo &outinfo) {
-  char buffer[1024];
-  int bytes_read;
-  // NOTE: do not quite understand read ends up blocking if I read more than
-  //        once. Oh well... Good enough for now.
-  // do {
-      bytes_read = read(infd, buffer, 1024);
-      if (bytes_read == 0) {
-        return false;
-      }
-      if (bytes_read == -1) {
-        switch(errno) {
-          case EAGAIN:
-            return true;
-          default:
-            return false;
-        }
-      }
-      assert(bytes_read > 0);
-      outinfo.unprinted += std::string(buffer, bytes_read);
-//  } while (bytes_read != 0);
-  return true;
-}
-
 
 // This is the handler for the parent inner loop.
 // So far the only responsibility for it are:
@@ -96,17 +80,17 @@ bool getChildData(int infd, DeviceInfo &outinfo) {
 // - TODO: allow single child view?
 // - TODO: allow last line per child mode?
 // - TODO: allow last error per child mode?
-int doParent(fd_set *in_fdset,
-             int maxFd,
-             std::vector<DeviceInfo> infos,
-             std::vector<DeviceSpec> specs,
-             std::vector<DeviceControl> controls,
-             std::vector<DeviceMetricsInfo> metricsInfos,
-             std::map<int,size_t> &socket2Info) {
+int doGUI(std::vector<DeviceInfo>& infos,
+          std::vector<DeviceSpec> specs,
+          std::vector<DeviceControl> controls,
+          std::vector<DeviceMetricsInfo> metricsInfos,
+          basio::io_service& ios,
+          bp::environment& ddsEnv,
+          dds::intercom_api::CCustomCmd& ddsCustomCmd) {
   void *window = initGUI("O2 Framework debug GUI");
   // FIXME: I should really have some way of exiting the
   // parent..
-  auto debugGUICallback = getGUIDebugger(infos, specs, metricsInfos, controls);
+  auto debugGUICallback = getGUIDebugger(infos, specs, metricsInfos, controls, ios, ddsEnv, ddsCustomCmd);
 
   while (pollGUI(window, debugGUICallback)) {
     // Exit this loop if all the children say they want to quit.
@@ -116,35 +100,6 @@ int doParent(fd_set *in_fdset,
     }
     if (allReadyToQuit) {
       break;
-    }
-
-    // Wait for children to say something. When they do
-    // print it.
-    fd_set *fdset = (fd_set *)malloc(sizeof(fd_set));
-    timeval timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 16666; // This should be enough to allow 60 HZ redrawing.
-    memcpy(fdset, in_fdset, sizeof(fd_set));
-    int numFd = select(maxFd, fdset, nullptr, nullptr, &timeout);
-    if (numFd == 0) {
-      continue;
-    }
-    for (int si = 0; si < maxFd; ++si) {
-      if (FD_ISSET(si, fdset)) {
-        assert(socket2Info.find(si) != socket2Info.end());
-        auto &info = infos[socket2Info[si]];
-
-        bool fdActive = getChildData(si, info);
-        // If the pipe was closed due to the process exiting, we
-        // can avoid the select.
-        if (!fdActive) {
-          info.active = false;
-          close(si);
-          FD_CLR(si, in_fdset);
-        }
-        --numFd;
-      }
-      // FIXME: no need to check after numFd gets to 0.
     }
     // Display part. All you need to display should actually be in
     // `infos`.
@@ -198,7 +153,7 @@ int doParent(fd_set *in_fdset,
             assert(info.historyPos < info.history.size());
             info.history[info.historyPos] = token;
             info.historyPos = (info.historyPos + 1) % info.history.size();
-            std::cout << "[" << info.pid << "]: " << token << std::endl;
+            std::cout << "[" << info.pid() << "]: " << token << std::endl;
           }
           s.erase(0, pos + delimiter.length());
       }
@@ -211,7 +166,7 @@ int doParent(fd_set *in_fdset,
   return 0;
 }
 
-int doChild(int argc, char **argv, const o2::framework::DeviceSpec &spec) {
+int runDevice(int argc, char **argv, const o2::framework::DeviceSpec &spec) {
   std::cout << "Spawing new device " << spec.id
             << " in process with pid " << getpid() << std::endl;
   try {
@@ -258,33 +213,6 @@ int doChild(int argc, char **argv, const o2::framework::DeviceSpec &spec) {
   return 0;
 }
 
-int createPipes(int maxFd, int *pipes) {
-    auto p = pipe(pipes);
-    maxFd = maxFd > pipes[0] ? maxFd : pipes[0];
-    maxFd = maxFd > pipes[1] ? maxFd : pipes[1];
-
-    if (p == -1) {
-      std::cerr << "Unable to create PIPE: ";
-      switch(errno) {
-        case EFAULT:
-          assert(false && "EFAULT while reading from pipe");
-        break;
-        case EMFILE:
-          std::cerr << "Too many active descriptors";
-        break;
-        case ENFILE:
-          std::cerr << "System file table is full";
-        break;
-        default:
-          std::cerr << "Unknown PIPE" << std::endl;
-      };
-      // Kill immediately both the parent and all the children
-      kill(-1*getpid(), SIGKILL);
-    }
-    return maxFd;
-}
-
-
 void verifyWorkflow(const o2::framework::WorkflowSpec &specs) {
   std::set<std::string> validNames;
   std::vector<OutputSpec> availableOutputs;
@@ -314,71 +242,37 @@ void verifyWorkflow(const o2::framework::WorkflowSpec &specs) {
   }
 }
 
-// Kill all the active children
-void killChildren(std::vector<DeviceInfo> &infos) {
-  for (auto &info : infos) {
-    if (!info.active) {
-      continue;
-    }
-    kill(info.pid, SIGKILL);
-    int status;
-    waitpid(info.pid, &status, 0);
-  }
-}
-
 static void handle_sigint(int signum) {
-  killChildren(gDeviceInfos);
-  // We kill ourself after having killed all our children (SPOOKY!)
+  // We kill ourself (SPOOKY!)
   signal(SIGINT, SIG_DFL);
   kill(getpid(), SIGINT);
 }
 
-void handle_sigchld(int sig) {
-  int saved_errno = errno;
-  pid_t exited = -1;
-  std::vector<pid_t> pids;
-  while (true) {
-    pid_t pid = waitpid((pid_t)(-1), nullptr, WNOHANG);
-    if (pid > 0) {
-      pids.push_back(pid);
-      continue;
-    } else {
-      break;
+template<typename Out>
+void split(const std::string &s, char delim, Out result) {
+    std::stringstream ss(s);
+    std::string item;
+    while (std::getline(ss, item, delim)) {
+        *(result++) = item;
     }
-  }
-  errno = saved_errno;
-  for (auto &pid : pids) {
-    printf("Child exited: %d\n", pid);
-    gDeviceInfos[pid].active = false;
-    fflush(stdout);
-  }
 }
 
 // This is a toy executor for the workflow spec
 // What it needs to do is:
 //
 // - Print the properties of each DataProcessorSpec
-// - Fork one process per DataProcessorSpec
-//   - Parent -> wait for all the children to complete (eventually
-//     killing them all on ctrl-c).
-//   - Child, pick the data-processor ID and start a O2DataProcessorDevice for
-//     each DataProcessorSpec
+// - Generate DDS topology from DataProcessorSpec
+// - Start DDS
+// - Activate DDS topology
+// - On GUI shutdown, stop DDS topology and stop dds-server
 int doMain(int argc, char **argv, const o2::framework::WorkflowSpec & specs) {
   static struct option longopts[] = {
     {"quiet",     no_argument,  nullptr, 'q' },
-    {"stop",   no_argument,  nullptr, 's' },
-    {"batch", no_argument, nullptr, 'b'},
-    {"graphviz", no_argument, nullptr, 'g'},
-    {"dds", no_argument, nullptr, 'D'},
     {"id", required_argument, nullptr, 'i'},
     { nullptr,         0,            nullptr, 0 }
   };
 
   bool defaultQuiet = false;
-  bool defaultStopped = false;
-  bool noGui = false;
-  bool graphViz = false;
-  bool generateDDS = false;
   std::string frameworkId;
 
   int opt;
@@ -386,22 +280,10 @@ int doMain(int argc, char **argv, const o2::framework::WorkflowSpec & specs) {
   char **safeArgv = reinterpret_cast<char**>(malloc(safeArgsSize));
   memcpy(safeArgv, argv, safeArgsSize);
 
-  while ((opt = getopt_long(argc, argv, "qsbgDi",longopts, nullptr)) != -1) {
+  while ((opt = getopt_long(argc, argv, "qi",longopts, nullptr)) != -1) {
     switch (opt) {
     case 'q':
         defaultQuiet = true;
-        break;
-    case 's':
-        defaultStopped = true;
-        break;
-    case 'b':
-        noGui = true;
-        break;
-    case 'g':
-        graphViz = true;
-        break;
-    case 'D':
-        generateDDS = true;
         break;
     case 'i':
         frameworkId = optarg;
@@ -417,12 +299,13 @@ int doMain(int argc, char **argv, const o2::framework::WorkflowSpec & specs) {
 
   std::vector<DeviceSpec> deviceSpecs;
 
+  LOG(INFO) << "Verifying workflow";
   try {
     verifyWorkflow(specs);
     dataProcessorSpecs2DeviceSpecs(specs, deviceSpecs);
     // This should expand nodes so that we can build a consistent DAG.
   } catch (std::runtime_error &e) {
-    std::cerr << "Invalid workflow: " << e.what() << std::endl;
+    LOG(ERROR) << "Invalid workflow: " << e.what();
     return 1;
   }
 
@@ -432,7 +315,7 @@ int doMain(int argc, char **argv, const o2::framework::WorkflowSpec & specs) {
   if (frameworkId.empty() == false) {
     for (auto &spec : deviceSpecs) {
       if (spec.id == frameworkId) {
-        return doChild(argc, safeArgv, spec);
+        return runDevice(argc, safeArgv, spec);
       }
     }
     LOG(ERROR) << "Unable to find component with id" << frameworkId;
@@ -442,110 +325,175 @@ int doMain(int argc, char **argv, const o2::framework::WorkflowSpec & specs) {
 
   gDeviceControls.resize(deviceSpecs.size());
   prepareArguments(argc, argv, defaultQuiet,
-                   defaultStopped, deviceSpecs, gDeviceControls);
+                   deviceSpecs, gDeviceControls);
 
-  if (graphViz) {
-    // Dump a graphviz representation of what I will do.
-    dumpDeviceSpec2Graphviz(std::cout, deviceSpecs);
-    exit(0);
-  }
+  LOG(INFO) << "Generating o2-dds-topology.xml";
+  std::ofstream file{"o2-dds-topology.xml", std::ios::out | std::ios::trunc};
+  deviceSpecs2DDSTopology(file, deviceSpecs);
+  file.close();
 
-  if (generateDDS) {
-    dumpDeviceSpec2DDS(std::cout, deviceSpecs);
-    exit(0);
-  }
+  auto env = boost::this_process::environment();
+  bp::environment dds_env = env;
 
-  // Mapping between various pipes and the actual device information.
-  // Key is the file description, value is index in the previous vector.
-  std::map<int, size_t> socket2DeviceInfo;
-  int maxFd = 0;
-
-  fd_set childFdset;
-  FD_ZERO(&childFdset);
-
-  struct sigaction sa_handle_child;
-  sa_handle_child.sa_handler = &handle_sigchld;
-  sigemptyset(&sa_handle_child.sa_mask);
-  sa_handle_child.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-  if (sigaction(SIGCHLD, &sa_handle_child, nullptr) == -1) {
-    perror(nullptr);
-    exit(1);
-  }
-
-  for (size_t di = 0; di < deviceSpecs.size(); ++di) {
-    auto &spec = deviceSpecs[di];
-    auto &control = gDeviceControls[di];
-    int childstdout[2];
-    int childstderr[2];
-
-    maxFd = createPipes(maxFd, childstdout);
-    maxFd = createPipes(maxFd, childstderr);
-
-    // If we have a framework id, it means we have already been respawned
-    // and that we are in a child. If not, we need to fork and re-exec, adding
-    // the framework-id as one of the options.
-    pid_t id = 0;
-    id = fork();
-    // We are the child: prepare options and reexec.
-    if (id == 0) {
-      // We allow being debugged and do not terminate on SIGTRAP
-      signal(SIGTRAP, SIG_IGN);
-
-      // We do not start the process if control.noStart is set.
-      if (control.stopped) {
-        kill(getpid(), SIGSTOP);
-      }
-
-      // This is the child. We close the read part of the pipe, stdout
-      // and dup2 the write part of the pipe on it. Then we can restart.
-      close(childstdout[0]);
-      close(childstderr[0]);
-      close(STDOUT_FILENO);
-      close(STDERR_FILENO);
-      dup2(childstdout[1], STDOUT_FILENO);
-      dup2(childstderr[1], STDERR_FILENO);
-      execvp(spec.args[0], spec.args.data());
-    }
-
-    // This is the parent. We close the write end of
-    // the child pipe and and keep track of the fd so
-    // that we can later select on it.
-    struct sigaction sa_handle_int;
-    sa_handle_int.sa_handler = handle_sigint;
-    sigemptyset(&sa_handle_int.sa_mask);
-    sa_handle_int.sa_flags = SA_RESTART;
-    if (sigaction(SIGINT, &sa_handle_int, nullptr) == -1) {
-      perror("Unable to install signal handler");
+  // Setup DDS environment
+  LOG(INFO) << "Setting up DDS environment";
+  {
+    if (env["DDS_ROOT"].empty()) {
+      LOG(ERROR) << "Could not find DDS installation in environment variable DDS_ROOT. Exiting.";
       exit(1);
     }
 
-    std::cout << "Starting " << spec.id << " on pid " << id << "\n";
-    DeviceInfo info;
-    info.pid = id;
-    info.active = true;
-    info.readyToQuit = false;
-    info.historySize = 1000;
-    info.historyPos = 0;
+    auto old_pwd = bfs::current_path();
+    bfs::current_path(env["DDS_ROOT"].to_vector()[0]);
 
-    socket2DeviceInfo.insert(std::make_pair(childstdout[0], gDeviceInfos.size()));
-    socket2DeviceInfo.insert(std::make_pair(childstderr[0], gDeviceInfos.size()));
-    gDeviceInfos.emplace_back(info);
+    bp::ipstream is; //reading pipe-stream
+    bp::child c("/bin/bash -c \"source ./DDS_env.sh > /dev/null 2>&1 && env\"", bp::std_out > is);
+
+    std::string line;
+    std::vector<std::string> elems;
+    // preserve environment of source ./DDS_env.sh
+    while (std::getline(is, line) && !line.empty()) {
+      split(line, '=', std::back_inserter(elems));
+      if (elems.size() == 2) {
+        // we need dds environment for current process(intercom_api) and for shellouts
+        dds_env[elems[0]] = elems[1];
+        env[elems[0]] = elems[1];
+      }
+      elems.clear();
+    }
+    c.wait();
+
+    bfs::current_path(old_pwd);
+  }
+
+  // Start DDS server
+  LOG(INFO) << "Starting DDS server";
+  {
+    bp::ipstream is; //reading pipe-stream
+    bp::child c(bp::search_path("dds-server"), "start", "-s", bp::std_out > is, dds_env);
+
+    std::string line;
+    while (std::getline(is, line)) {
+      LOG(DEBUG) << line;
+    }
+    c.wait();
+  }
+
+  basio::io_service ios;
+  basio::io_service::work work(ios);
+  std::thread uiWorker([&](){ ios.run(); });
+
+  // Submit DDS agents
+  LOG(INFO) << "Submitting " << deviceSpecs.size() << " DDS agents to localhost";
+  {
+    bp::ipstream is; //reading pipe-stream
+    bp::child c(bp::search_path("dds-submit"), "--rms", "localhost", "-n", std::to_string(deviceSpecs.size()), bp::std_out > is, dds_env);
+
+    std::string line;
+    while (std::getline(is, line)) {
+      LOG(DEBUG) << line;
+    }
+    c.wait();
+  }
+
+  LOG(INFO) << "Retrieve DDS agents";
+  {
+    bp::ipstream is; //reading pipe-stream
+    bp::child c(bp::search_path("dds-info"), "-l", bp::std_out > is, dds_env);
+
+    std::string line;
+    while (std::getline(is, line)) {
+      LOG(DEBUG) << line;
+    }
+    c.wait();
+  }
+
+  dds::intercom_api::CIntercomService ddsIntercomService;
+  dds::intercom_api::CCustomCmd ddsCustomCmd{ddsIntercomService};
+
+  ddsCustomCmd.subscribe([&](const std::string& cmd, const std::string& cond, uint64_t senderId) {
+    std::regex heartbeat_regex{"^heartbeat: ([^\\s,]+),(\\d+)"};
+    std::smatch heartbeat_match;
+    std::regex state_regex{"^state-change: ([^\\s,]+),([\\S ]+)"};
+    std::smatch state_match;
+
+    if (std::regex_match(cmd, heartbeat_match, heartbeat_regex)) {
+      // FIXME: linear search too expensive
+      for (int i = 0; i < deviceSpecs.size(); ++i) {
+        if (deviceSpecs[i].id == heartbeat_match[1].str()) {
+          DeviceInfo &info = gDeviceInfos[i];
+          info.pid(std::stoi(heartbeat_match[2].str()));
+          info.withLock([&](){
+            if (info.stateUnsafe() == DeviceState::Disconnected) {
+              info.stateUnsafe(DeviceState::Connected);
+            }
+          });
+        }
+      }
+    } else if (std::regex_match(cmd, state_match, state_regex)) {
+      LOG(DEBUG) << cmd;
+      // FIXME: linear search too expensive
+      for (int i = 0; i < deviceSpecs.size(); ++i) {
+        if (deviceSpecs[i].id == state_match[1].str()) {
+          DeviceInfo &info = gDeviceInfos[i];
+          auto newState = state_match[2].str();
+          if (newState == "RUNNING") {
+            info.state(DeviceState::Running);
+          } else if (newState == "DEVICE READY") {
+            info.state(DeviceState::DeviceReady);
+          } else if (newState == "READY") {
+            info.state(DeviceState::Ready);
+          } else if (newState == "INITIALIZING TASK") {
+            info.state(DeviceState::InitializingTask);
+          } else if (newState == "INITIALIZING DEVICE") {
+            info.state(DeviceState::InitializingDevice);
+          } else if (newState == "RESETTING TASK") {
+            info.state(DeviceState::ResettingTask);
+          } else if (newState == "RESETTING DEVICE") {
+            info.state(DeviceState::ResettingDevice);
+          } else if (newState == "IDLE") {
+            info.state(DeviceState::Idle);
+          } else if (newState == "EXITING") {
+            info.state(DeviceState::Exiting);
+          }
+        }
+      }
+    } else {
+      LOG(INFO) << "Received unknown command: " << cmd;
+    }
+  });
+
+  ddsIntercomService.start();
+
+  for (size_t di = 0; di < deviceSpecs.size(); ++di) {
+    gDeviceInfos.emplace_back(true, false, 1000, 0);
     // Let's add also metrics information for the given device
     gDeviceMetricsInfos.emplace_back(DeviceMetricsInfo{});
-
-    close(childstdout[1]);
-    close(childstderr[1]);
-    FD_SET(childstdout[0], &childFdset);
-    FD_SET(childstderr[0], &childFdset);
   }
-  maxFd += 1;
-  auto exitCode = doParent(&childFdset,
-                           maxFd,
-                           gDeviceInfos,
-                           deviceSpecs,
-                           gDeviceControls,
-                           gDeviceMetricsInfos,
-                           socket2DeviceInfo);
-  killChildren(gDeviceInfos);
-  return exitCode;
+
+  auto result = doGUI(gDeviceInfos,
+                      deviceSpecs,
+                      gDeviceControls,
+                      gDeviceMetricsInfos,
+                      ios,
+                      dds_env,
+                      ddsCustomCmd);
+
+  work.~work();
+  uiWorker.join();
+
+  // Stop DDS server
+  LOG(INFO) << "Shutting down DDS cluster and DDS server";
+  {
+    bp::ipstream is; //reading pipe-stream
+    bp::child c(bp::search_path("dds-server"), "stop", bp::std_out > is, dds_env);
+
+    std::string line;
+    while (std::getline(is, line)) {
+      LOG(DEBUG) << line;
+    }
+    c.wait();
+  }
+
+  return result;
 }

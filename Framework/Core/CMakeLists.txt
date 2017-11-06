@@ -20,6 +20,10 @@ else()
   set(GUI_SOURCES src/FrameworkDummyDebugger.cxx src/DummyDebugGUI.cxx)
 endif()
 
+get_target_property(DDS_PLUGIN FairRoot::FairMQPlugin_dds LOCATION)
+get_filename_component(FAIRROOT_PLUGIN_DIR ${DDS_PLUGIN} DIRECTORY)
+configure_file(src/DeviceSpec.cxx.in DeviceSpec.cxx @ONLY)
+
 set(SRCS
     src/BoostOptionsRetriever.cxx
     src/ConfigParamsHelper.cxx
@@ -29,7 +33,7 @@ set(SRCS
     src/DataRelayer.cxx
     src/DataSourceDevice.cxx
     src/DeviceMetricsInfo.cxx
-    src/DeviceSpec.cxx
+    ${CMAKE_CURRENT_BINARY_DIR}/DeviceSpec.cxx
     src/DDSConfigHelpers.cxx
     src/FairOptionsRetriever.cxx
     src/FairOptionsRetriever.cxx
@@ -66,7 +70,7 @@ set(TEST_SRCS
       test/test_BoostOptionsRetriever.cxx
       test/test_Collections.cxx
       test/test_DeviceMetricsInfo.cxx
-      test/test_FrameworkDataFlowToDDS.cxx
+      # test/test_FrameworkDataFlowToDDS.cxx
       test/test_Graphviz.cxx
       test/test_Services.cxx
       test/test_SingleDataSource.cxx

@@ -22,7 +22,7 @@ namespace framework {
 /// @a out is a stream where the configuration will be printed
 /// @a specs is the internal representation of the dataflow topology
 ///          which we want to dump.
-void dumpDeviceSpec2DDS(std::ostream &out, const std::vector<DeviceSpec> &specs);
+void deviceSpecs2DDSTopology(std::ostream &out, const std::vector<DeviceSpec> &specs);
 
 } // namespace framework
 } // namespace o2

@@ -21,7 +21,6 @@ namespace framework {
 // device wants to modify it, it should be registered here and it will
 // be acted on in the subsequent state update.
 struct DeviceControl {
-  bool stopped; // whether the device should start in STOP
   bool quiet; // wether we should be capturing device output.
   char logFilter[256] = {0};  // Lines in the log should match this to be displayed
   char logStartTrigger[256] = {0}; // Start printing log with the last occurence of this

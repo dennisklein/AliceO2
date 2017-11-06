@@ -13,6 +13,8 @@
 #include "DebugGUI/imgui.h"
 #include <cmath>
 #include <vector>
+#include <boost/process.hpp>
+namespace bp = boost::process;
 
 static inline ImVec2 operator+(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2(lhs.x+rhs.x, lhs.y+rhs.y); }
 static inline ImVec2 operator-(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2(lhs.x-rhs.x, lhs.y-rhs.y); }
@@ -23,10 +25,13 @@ namespace framework {
 
 void showTopologyNodeGraph(bool* opened,
                            const std::vector<DeviceInfo> &infos,
-                           const std::vector<DeviceSpec> &specs)
+                           const std::vector<DeviceSpec> &specs,
+                           basio::io_service& ios,
+                           bp::environment& ddsEnv,
+                           dds::intercom_api::CCustomCmd& ddsCustomCmd)
 {
     ImGui::SetNextWindowPos(ImVec2(0, 0), 0);
-    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x/3*2, ImGui::GetIO().DisplaySize.y - 300), 0);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y), 0);
     if (!ImGui::Begin("Physical topology view", opened))
     {
         ImGui::End();
@@ -84,10 +89,10 @@ void showTopologyNodeGraph(bool* opened,
                         spec.outputs.size() + spec.forwards.size()));
         int ii = 0;
         for (auto &input : spec.inputs) {
-          std::string outName{input.first, 3};
-          const auto &out = linkToIndex.find(outName);
+          // std::string outName{input.first, 3};
+          const auto &out = linkToIndex.find(input.first);
           if (out == linkToIndex.end()) {
-            LOG(ERROR) << "Could not find suitable node for " << outName;
+            LOG(ERROR) << "Could not find suitable node for " << input.first;
             continue;
           }
           links.push_back(NodeLink{ out->second.first, out->second.second, si, ii});
@@ -97,12 +102,13 @@ void showTopologyNodeGraph(bool* opened,
       }
     }
 
+    ImGui::BeginGroup();
     // Draw a list of nodes on the left side
     bool open_context_menu = false;
     int node_hovered_in_list = -1;
     int node_hovered_in_scene = -1;
-    ImGui::BeginChild("node_list", ImVec2(100,0));
-    ImGui::Text("Nodes");
+    ImGui::BeginChild("node_list", ImVec2(100,-120));
+    ImGui::Text("Devices");
     ImGui::Separator();
     for (int node_idx = 0; node_idx < nodes.Size; node_idx++)
     {
@@ -118,6 +124,76 @@ void showTopologyNodeGraph(bool* opened,
         ImGui::PopID();
     }
     ImGui::EndChild();
+    ImGui::BeginChild("controller", ImVec2(100,0));
+    ImGui::Text("Control");
+    ImGui::Separator();
+    switch (gTopo.GetTopologyState()) {
+        case TopologyState::Start:
+            if(ImGui::Button("Start", ImVec2(100,0))) {
+                gTopo.SetTopologyState(TopologyState::Working);
+                ios.post([&](){
+                    LOG(INFO) << "Activating o2-dds-topology.xml";
+                    bp::ipstream is; //reading pipe-stream
+                    bp::child c(bp::search_path("dds-topology"), "--activate", "o2-dds-topology.xml", bp::std_out > is, ddsEnv);
+
+                    std::string line;
+                    while (std::getline(is, line)) {
+                        LOG(DEBUG) << line;
+                    }
+                    c.wait();
+                    gTopo.SetTopologyState(TopologyState::Activated);
+
+                    ddsCustomCmd.send("subscribe-to-heartbeats", "");
+                    ddsCustomCmd.send("subscribe-to-state-changes", "");
+                });
+            }
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::Button("Reset", ImVec2(100,0));
+            ImGui::Button("Stop", ImVec2(100,0));
+            ImGui::PopStyleColor(3);
+            break;
+        case TopologyState::Working:
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::Button("Start", ImVec2(100,0));
+            ImGui::Button("Reset", ImVec2(100,0));
+            ImGui::Button("Stop", ImVec2(100,0));
+            ImGui::PopStyleColor(3);
+            ImGui::Text("working ...");
+            break;
+        case TopologyState::Activated:
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::Button("Start", ImVec2(100,0));
+            ImGui::PopStyleColor(3);
+            ImGui::Button("Reset", ImVec2(100,0));
+            if(ImGui::Button("Stop", ImVec2(100,0))) {
+                gTopo.SetTopologyState(TopologyState::Working);
+                ddsCustomCmd.send("unsubscribe-from-heartbeats", "");
+                ddsCustomCmd.send("unsubscribe-from-state-changes", "");
+                ios.post([&](){
+                    LOG(INFO) << "Stopping active DDS topology";
+                    bp::ipstream is; //reading pipe-stream
+                    bp::child c(bp::search_path("dds-topology"), "--stop", bp::std_out > is, ddsEnv);
+
+                    std::string line;
+                    while (std::getline(is, line)) {
+                        LOG(DEBUG) << line;
+                    }
+                    c.wait();
+                    gTopo.SetTopologyState(TopologyState::Start);
+                });
+            }
+            break;
+        default:
+            break;
+    }
+    ImGui::EndChild();
+    ImGui::EndGroup();
 
     ImGui::SameLine();
     ImGui::BeginGroup();
@@ -178,7 +254,92 @@ void showTopologyNodeGraph(bool* opened,
         bool old_any_active = ImGui::IsAnyItemActive();
         ImGui::SetCursorScreenPos(node_rect_min + NODE_WINDOW_PADDING);
         ImGui::BeginGroup(); // Lock horizontal position
-        ImGui::Text("%s", node->Name);
+        if (info.pid() == 0) {
+            ImGui::Text("%s", node->Name);
+        } else {
+            ImGui::Text("%s (%d)", node->Name, info.pid());
+        }
+        switch (info.state()) {
+            case o2::framework::DeviceState::Disconnected:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(0/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(0/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(0/7.0f, 0.8f, 0.5f));
+                ImGui::Button("DISCONNECTED", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::Connected:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(4/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(4/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(4/7.0f, 0.8f, 0.5f));
+                ImGui::Button("CONNECTED", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::Idle:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(4/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(4/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(4/7.0f, 0.8f, 0.5f));
+                ImGui::Button("IDLE", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::InitializingDevice:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::Button("INIT DEVICE", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::InitializingTask:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::Button("INIT TASK", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::DeviceReady:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::Button("DEVICE READY", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::Ready:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::Button("READY", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::Running:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(2/7.0f, 0.8f, 0.5f));
+                ImGui::Button("RUNNING", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::ResettingTask:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::Button("RESET TASK", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::ResettingDevice:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::Button("RESET DEVICE", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            case o2::framework::DeviceState::Exiting:
+                ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, (ImVec4)ImColor::HSV(1/7.0f, 0.8f, 0.5f));
+                ImGui::Button("EXITING", ImVec2(100,25));
+                ImGui::PopStyleColor(3);
+                break;
+            default:
+                break;
+        }
         ImGui::EndGroup();
 
         // Save the size of what we have emitted and whether any of the widgets are being used

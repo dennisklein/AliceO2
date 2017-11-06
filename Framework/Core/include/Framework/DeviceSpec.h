@@ -51,7 +51,6 @@ void
 prepareArguments(int argc,
                  char **argv,
                  bool defaultQuiet,
-                 bool defaultStopped,
                  std::vector<DeviceSpec> &deviceSpecs,
                  std::vector<DeviceControl> &deviceControls);
 }
