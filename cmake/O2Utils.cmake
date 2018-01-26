@@ -20,7 +20,7 @@ macro(O2_SETUP)
 
   # add a local target for the man page generation and make the
   # global man target dpending on it
-  add_custom_target(${PARSED_ARGS_NAME}.man ALL)
+  add_custom_target(${PARSED_ARGS_NAME}.man)
   add_dependencies(man ${PARSED_ARGS_NAME}.man)
 endmacro()
 
