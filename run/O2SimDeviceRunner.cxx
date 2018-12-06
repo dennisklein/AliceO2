@@ -22,6 +22,9 @@
 #include <TStopwatch.h>
 #include <sys/wait.h>
 #include <pthread.h> // to set cpu affinity
+#include <dds_intercom.h>
+#include <mutex>
+#include <condition_variable>
 
 namespace bpo = boost::program_options;
 
@@ -153,15 +156,43 @@ int main(int argc, char* argv[])
 {
   auto internalfork = getenv("ALICE_SIMFORKINTERNAL");
   if (internalfork) {
+    std::string serveraddress;
+    std::string mergeraddress;
 
-    std::string serveraddress("tcp://localhost:25005");
-    std::string mergeraddress("tcp://localhost:25009");
-    auto host = getenv("ALICE_SIMMAINHOST");
-    if (host) {
-      // argv[1] is supposed to be an IP address or hostname
-      serveraddress = "tcp://" + std::string(host) + ":25005";
-      mergeraddress = "tcp://" + std::string(host) + ":25009";
+    dds::intercom_api::CIntercomService ddsService;
+    dds::intercom_api::CKeyValue ddsKeyValue(ddsService);
+    std::mutex ddsMutex;
+    std::condition_variable ddsPortReceived;
+
+    ddsKeyValue.subscribe([&](const std::string& propertyId, const std::string& value, uint64_t senderTaskID) {
+      LOG(debug) << "Received update for " << propertyId << ": value=" << value << ", senderTaskID=" << senderTaskID;
+
+      {
+        std::unique_lock<std::mutex> lk(ddsMutex);
+
+        if (propertyId == "simdata") {
+          mergeraddress = value;
+        } else if (propertyId == "primary-get") {
+          serveraddress = value;
+        }
+      }
+
+      ddsPortReceived.notify_one();
+    });
+
+    ddsService.start();
+
+    {
+      std::unique_lock<std::mutex> lk(ddsMutex);
+      ddsPortReceived.wait(lk, [&](){ return !mergeraddress.empty() && !serveraddress.empty(); });
     }
+
+    // auto host = getenv("ALICE_SIMMAINHOST");
+    // if (host) {
+      // argv[1] is supposed to be an IP address or hostname
+      // serveraddress = "tcp://" + std::string(host) + ":25005";
+      // mergeraddress = "tcp://" + std::string(host) + ":25009";
+    // }
     LOG(INFO) << serveraddress;
     LOG(INFO) << mergeraddress;
 

@@ -1837,6 +1837,7 @@ o2_define_bucket(
     Generators
     DataFormatsParameters
     Framework
+    DDS::dds_intercom_lib
 )
 
 # a bucket for "global" executables/macros

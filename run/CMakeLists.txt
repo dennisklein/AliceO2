@@ -5,7 +5,8 @@ Set(Exe_Names
   O2SimDeviceRunner
   O2PrimaryServerDeviceRunner
   O2HitMergerRunner
-  o2sim
+  o2sim_parallel
+  o2sim_parallel_tool
 )
 
 Set(Exe_Source
@@ -15,6 +16,7 @@ Set(Exe_Source
   O2PrimaryServerDeviceRunner.cxx
   O2HitMergerRunner.cxx
   o2sim_parallel.cxx
+  o2sim_parallel_tool.cxx
 )
 
 set(BUCKET_NAME "run_bucket")
@@ -35,6 +37,7 @@ foreach (_file RANGE 0 ${_length}) # loop over a range because we traverse 2 lis
 endforeach (_file RANGE 0 ${_length})
 
 Install(FILES o2simtopology.json DESTINATION share/config)
+Install(PROGRAMS o2sim_parallel_dds.sh DESTINATION bin)
 
 # add a complex simulation as a unit test (if simulation was enabled)
 # perform some checks on kinematics and track references
