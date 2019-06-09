@@ -8,7 +8,7 @@ o2_add_library(TPCFastTransformation
                        TPCFastTransform.cxx
                        TPCFastTransformGeo.cxx
                PUBLIC_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_LIST_DIR}
-               PUBLIC_LINK_LIBRARIES O2::CommonGPU Vc::Vc ROOT::Core)
+               PUBLIC_LINK_LIBRARIES O2::GPUCommon Vc::Vc ROOT::Core)
 
 o2_target_root_dictionary(TPCFastTransformation
                           HEADERS IrregularSpline1D.h
