@@ -1,7 +1,3 @@
-if(ENABLE_CUDA)
-  add_subdirectory(cuda)
-endif()
-
 o2_add_library(ITStracking
                SOURCES
                src/ClusterLines.cxx
@@ -20,7 +16,7 @@ o2_add_library(ITStracking
                src/VertexerTraits.cxx
                PUBLIC_LINK_LIBRARIES 
                O2::GPUCommon
-               ms_gsl
+               ms_gsl::ms_gsl
                O2::CommonConstants
                O2::DataFormatsITSMFT
                O2::SimulationDataFormat
@@ -35,3 +31,8 @@ o2_target_root_dictionary(ITStracking
                           include/ITStracking/DBScan.h
                           LINKDEF
                           src/TrackingLinkDef.h)
+
+if(ENABLE_CUDA)
+  add_subdirectory(cuda)
+endif()
+
