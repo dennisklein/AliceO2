@@ -43,9 +43,9 @@ The idea is to go in steps.
 
 2. add GPU/HIP/OpenCL stuff
 
-3. add Root macro testing
+3. add creation of O2Config.cmake
 
-4. add creation of O2Config.cmake
+4. add Root macro testing
 
 5. polish and fix the remaining inconsistencies (e.g. test labelling, etc...)
 
@@ -176,3 +176,7 @@ In the `GPUTracking` all the AliRoot-specific references has been removed. They 
 This step was tested on a CentOS7 server with OpenCL, HIP and CUDA dev. kits installed.
 
 This step also brings a temporary [O2RecipeAdapter](../dependencies/O2RecipeAdapter.cmake) cmake include to be able to test this without having to modify (too much at least) the existing o2 recipe and CI.
+
+## Step 3
+
+In order to have the O2Suite building fine, step 3 is now the addition of the creation of a proper O2Config.cmake file, so that consumer packages (like QualityControl) can use our targets.

@@ -1,3 +1,5 @@
+add_subdirectory(Logger)
+
 add_subdirectory(Foundation)
 
 add_subdirectory(DebugGUI)
@@ -12,4 +14,3 @@ if(arrow_FOUND)
   add_subdirectory(ArrowTests)
 endif()
 
-add_subdirectory(Logger)

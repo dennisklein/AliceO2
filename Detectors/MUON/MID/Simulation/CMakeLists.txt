@@ -3,6 +3,7 @@ o2_add_library(MIDSimulation
                        src/ChamberHV.cxx
                        src/ChamberResponse.cxx
                        src/ChamberResponseParams.cxx
+                       src/ClusterLabeler.cxx
                        src/Detector.cxx
                        src/Digitizer.cxx
                        src/DigitsMerger.cxx
@@ -10,7 +11,9 @@ o2_add_library(MIDSimulation
                        src/Geometry.cxx
                        src/Hit.cxx
                        src/Materials.cxx
+                       src/MCClusterLabel.cxx
                        src/MCLabel.cxx
+                       src/PreClusterLabeler.cxx
                        src/Stepper.cxx
                        src/TrackLabeler.cxx
                PUBLIC_LINK_LIBRARIES O2::MIDBase O2::CommonDataFormat
@@ -23,12 +26,14 @@ o2_target_root_dictionary(
           include/MIDSimulation/ChamberHV.h
           include/MIDSimulation/ChamberResponse.h
           include/MIDSimulation/ChamberResponseParams.h
+          include/MIDSimulation/ClusterLabeler.h
           include/MIDSimulation/ColumnDataMC.h
           include/MIDSimulation/Detector.h
           include/MIDSimulation/Digitizer.h
           include/MIDSimulation/DigitsMerger.h
           include/MIDSimulation/DigitsPacker.h
           include/MIDSimulation/Hit.h
+          include/MIDSimulation/MCClusterLabel.h
           include/MIDSimulation/MCLabel.h
           include/MIDSimulation/Stepper.h)
 

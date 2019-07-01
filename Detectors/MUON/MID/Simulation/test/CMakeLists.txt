@@ -12,7 +12,7 @@ o2_add_test(Simulation
             SOURCES
             testSimulation.cxx
             PUBLIC_LINK_LIBRARIES
-            O2::MIDSimulation
+            O2::MIDSimulation O2::MIDTracking
             COMPONENT_NAME
             mid
             LABELS

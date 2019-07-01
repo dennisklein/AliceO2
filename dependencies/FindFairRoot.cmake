@@ -1,19 +1,43 @@
 # TODO: remove this file once FairRoot correctly exports its cmake config
 
-find_path(FairRoot_INC FairDetector.h ${FairRoot_ROOT})
+find_path(FairRoot_INC FairDetector.h
+          PATH_SUFFIXES FairRoot/include
+          PATHS ${FAIRROOTPATH}/include)
 
 if(NOT EXISTS ${FairRoot_INC})
+  set(FairRoot_FOUND FALSE)
+  if(FairRoot_FIND_REQUIRED)
+    message(FATAL_ERROR "Could not find FairRoot")
+  endif()
   return()
 endif()
 
-get_filename_component(FairRoot_DIR "${FairRoot_INC}/.." ABSOLUTE)
+get_filename_component(FairRoot_TOPDIR "${FairRoot_INC}/.." ABSOLUTE)
 
-find_library(FairRoot_Tools FairTools ${FairRoot_ROOT})
-find_library(FairRoot_ParBase ParBase ${FairRoot_ROOT})
-find_library(FairRoot_GeoBase GeoBase ${FairRoot_ROOT})
-find_library(FairRoot_Base Base ${FairRoot_ROOT})
-find_library(FairRoot_ParMQ ParMQ ${FairRoot_ROOT})
-find_library(FairRoot_Gen Gen ${FairRoot_ROOT})
+set(OLD_CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH})
+set(CMAKE_PREFIX_PATH ${FairRoot_TOPDIR})
+
+find_library(FairRoot_Tools FairTools)
+find_library(FairRoot_ParBase ParBase)
+find_library(FairRoot_GeoBase GeoBase)
+find_library(FairRoot_Base Base)
+find_library(FairRoot_ParMQ ParMQ)
+find_library(FairRoot_Gen Gen)
+
+set(CMAKE_PREFIX_PATH ${OLD_CMAKE_PREFIX_PATH})
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(FairRoot
+                                  DEFAULT_MSG FairRoot_Base
+                                              FairRoot_Tools
+                                              FairRoot_ParBase
+                                              FairRoot_GeoBase
+                                              FairRoot_ParMQ
+                                              FairRoot_Gen)
+
+if(NOT FairRoot_FOUND)
+  return()
+endif()
 
 if(NOT TARGET FairRoot::Tools)
   add_library(FairRoot::Tools IMPORTED INTERFACE)
@@ -76,3 +100,5 @@ if(NOT TARGET FairRoot::Gen)
                         INTERFACE FairRoot::ParBase FairRoot::Base
                                   FairRoot::ParBase)
 endif()
+
+set(FairRoot_FOUND TRUE)

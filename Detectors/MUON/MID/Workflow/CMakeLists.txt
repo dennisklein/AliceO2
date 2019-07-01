@@ -1,25 +1,19 @@
-set(MODULE_NAME "MIDWorkflow")
-set(MODULE_BUCKET_NAME mid_workflow_bucket)
+o2_add_library(MIDWorkflow
+               SOURCES src/ClusterizerSpec.cxx
+                       src/ClusterLabelerSpec.cxx
+                       src/DigitReaderSpec.cxx
+                       src/RecoWorkflow.cxx
+                       src/TrackerSpec.cxx
+                       src/TrackLabelerSpec.cxx
+               PUBLIC_LINK_LIBRARIES O2::Framework
+                                     ms_gsl::ms_gsl
+                                     O2::DataFormatsMID
+                                     O2::SimulationDataFormat
+                                     O2::MIDSimulation
+                                     O2::MIDTracking
+                                     O2::DPLUtils)
 
-O2_SETUP(NAME ${MODULE_NAME})
-
-set(SRCS
-        src/ClusterizerSpec.cxx
-        src/ClusterLabelerSpec.cxx
-        src/DigitReaderSpec.cxx
-        src/RecoWorkflow.cxx
-        src/TrackerSpec.cxx
-        src/TrackLabelerSpec.cxx
-        )
-
-set(LIBRARY_NAME ${MODULE_NAME})
-set(BUCKET_NAME ${MODULE_BUCKET_NAME})
-
-O2_GENERATE_LIBRARY()
-
-O2_GENERATE_EXECUTABLE(
-  EXE_NAME o2-mid-reco-workflow
-  SOURCES src/mid-reco-workflow.cxx
-  MODULE_LIBRARY_NAME ${LIBRARY_NAME}
-  BUCKET_NAME ${MODULE_BUCKET_NAME}
-)
+o2_add_executable(reco-workflow
+                  SOURCES src/mid-reco-workflow.cxx
+                  COMPONENT_NAME mid
+                  PUBLIC_LINK_LIBRARIES O2::MIDWorkflow)

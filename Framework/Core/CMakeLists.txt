@@ -73,6 +73,7 @@ o2_add_library(Framework
                        src/WorkflowSerializationHelpers.cxx
                        src/WorkflowSpec.cxx
                        src/runDataProcessing.cxx
+                       src/ExternalFairMQDeviceProxy.cxx
                        test/TestClasses.cxx
                PRIVATE_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_LIST_DIR}/src
                PUBLIC_LINK_LIBRARIES AliceO2::Common
@@ -91,7 +92,8 @@ o2_add_library(Framework
                                      arrow_shared
                                      ms_gsl::ms_gsl
                                      ROOT::ROOTDataFrame
-                                     O2::DebugGUI)
+                                     O2::DebugGUI
+                                     O2::FrameworkLogger)
 
 o2_target_root_dictionary(Framework
                           HEADERS test/TestClasses.h

@@ -44,8 +44,6 @@ if(ALICEO2_MODULAR_BUILD)
   # retrieve the ALIBUILD_BASEDIR
   #
 
-  message(STATUS "!!!")
-
   if(NOT Common_O2_ROOT)
     message(FATAL_ERROR "Don't know how to adapt (yet) to this situation")
   endif()

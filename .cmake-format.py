@@ -66,6 +66,13 @@ additional_commands = {
             "HEADERS": '*',
         }
     },
+    "add_root_dictionary": {
+        "kwargs": {
+            "LINKDEF": '+',
+            "HEADERS": '*',
+            "BASENAME": '*',
+        }
+    },
     "o2_data_file": {
         "kwargs": {
             "COPY": '+',
@@ -119,6 +126,14 @@ additional_commands = {
             "VERSION_VAR": '*',
             "HANDLE_COMPONENTS": '*',
             "FAIL_MESSAGE": '*'
+        }
+    },
+    "set_package_properties": {
+        "kwargs": {
+            "PROPERTIES": '*',
+            "URL": '*',
+            "TYPE": '*',
+            "PURPOSE": '*'
         }
     }
 }

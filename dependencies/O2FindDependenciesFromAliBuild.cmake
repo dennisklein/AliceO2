@@ -137,6 +137,7 @@ function(o2_find_dependencies_from_alibuild)
   protected_set_root(ROOT)
   protected_set_root(RapidJSON)
   protected_set_root(ms_gsl)
+  protected_set_root(ZeroMQ)
 
   protected_set_root(pythia)
   protected_set_root(pythia6)

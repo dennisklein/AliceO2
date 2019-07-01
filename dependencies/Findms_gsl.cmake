@@ -1,6 +1,5 @@
-find_path(MS_GSL_INCLUDE_DIR gsl/gsl
-          PATHS ${ms_gsl_ROOT}/include
-          NO_DEFAULT_PATH)
+find_path(MS_GSL_INCLUDE_DIR gsl/gsl PATH_SUFFIXES ms_gsl/include)
+
 if(NOT MS_GSL_INCLUDE_DIR)
   set(MS_GSL_FOUND FALSE)
   message(FATAL_ERROR "MS_GSL not found")

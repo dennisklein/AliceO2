@@ -1,30 +1,27 @@
-# FindRapidJSON.cmake
 #
-# Finds the rapidjson (header-only) library
-#
-# This will define the following variables
-#
-# * RapidJSON_FOUND
-#
-# and the following imported targets
-#
-# RapidJSON::RapidJSON
+# Finds the rapidjson (header-only) library using the CONFIG file provided by
+# RapidJSON and add the RapidJSON::RapidJSON imported targets on top of it
 #
 
-find_path(RapidJSON_INC rapidjson.h ${RapidJSON_ROOT}/include/rapidjson)
+find_package(RapidJSON CONFIG QUIET)
 
-if(NOT RapidJSON_INC)
+if(NOT RapidJSON_INCLUDE_DIR)
   set(RapidJSON_FOUND FALSE)
+  if(RapidJSON_FIND_REQUIRED)
+    message(FATAL_ERROR "RapidJSON not found")
+  endif()
 else()
   set(RapidJSON_FOUND TRUE)
 endif()
 
-mark_as_advanced(RapidJSON_INC)
+mark_as_advanced(RapidJSON_INCLUDE_DIR)
 
-get_filename_component(incdir ${RapidJSON_INC}/.. ABSOLUTE)
+get_filename_component(inc ${RapidJSON_INCLUDE_DIR} ABSOLUTE)
 
 if(RapidJSON_FOUND AND NOT TARGET RapidJSON::RapidJSON)
   add_library(RapidJSON::RapidJSON IMPORTED INTERFACE)
   set_target_properties(RapidJSON::RapidJSON
-                        PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${incdir})
+                        PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${inc})
 endif()
+
+unset(inc)

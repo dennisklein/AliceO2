@@ -22,8 +22,14 @@ function(o2_add_header_only_library)
 
   set(target ${ARGV0})
 
+  # define the target and its O2:: alias
   add_library(${target} INTERFACE)
   add_library(O2::${target} ALIAS ${target})
+
+  # set the export name so that packages using O2 can reference the target as
+  # O2::${baseTargetName} as well (assuming the export is installed with
+  # namespace O2::)
+  set_property(TARGET ${target} PROPERTY EXPORT_NAME ${baseTargetName})
 
   if(NOT A_INCLUDE_DIRECTORIES)
     get_filename_component(dir include ABSOLUTE)
@@ -34,7 +40,9 @@ function(o2_add_header_only_library)
     endif()
   endif()
 
-  target_include_directories(${target} INTERFACE ${A_INCLUDE_DIRECTORIES})
+  target_include_directories(
+    ${target}
+    INTERFACE $<BUILD_INTERFACE:${A_INCLUDE_DIRECTORIES}>)
 
   if(A_INTERFACE_LINK_LIBRARIES)
     target_link_libraries(${target} INTERFACE ${A_INTERFACE_LINK_LIBRARIES})
@@ -42,4 +50,7 @@ function(o2_add_header_only_library)
   install(DIRECTORY ${A_INCLUDE_DIRECTORIES}/
           DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
+  install(TARGETS ${target}
+          EXPORT O2Targets
+          INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 endfunction()

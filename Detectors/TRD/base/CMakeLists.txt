@@ -13,9 +13,12 @@ o2_add_library(TRDBase
                        src/CalROC.cxx
                        src/TRDFeeParam.cxx
                        src/LTUParam.cxx
-               PUBLIC_LINK_LIBRARIES O2::CommonGPU
-                                     O2::DetectorsCommonDataFormats O2::Field
-                                     O2::DetectorsBase ROOT::Physics)
+               PUBLIC_LINK_LIBRARIES O2::GPUCommon
+                                     O2::DetectorsCommonDataFormats
+                                     O2::Field
+                                     O2::DetectorsBase
+                                     ROOT::Physics
+                                     O2::SimulationDataFormat)
 
 o2_target_root_dictionary(TRDBase
                           HEADERS include/TRDBase/TRDPadPlane.h
@@ -27,9 +30,6 @@ o2_target_root_dictionary(TRDBase
                                   include/TRDBase/PadResponse.h
                                   include/TRDBase/Digit.h
                                   include/TRDBase/MCLabel.h
-                                  include/TRDBase/TRDDigitsParam.h
-                                  include/TRDBase/TRDCalPadStatus.h
-                                  include/TRDBase/TRDCalSingleChamberStatus.h
                                   include/TRDBase/CalDet.h
                                   include/TRDBase/CalROC.h
                                   include/TRDBase/TRDFeeParam.h
