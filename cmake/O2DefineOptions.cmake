@@ -9,6 +9,6 @@ function(o2_define_options)
   option(BUILD_EXAMPLES "Build examples" ON)
 
   option(BUILD_TEST_ROOT_MACROS
-         "Build the tests toload and compile the Root macros" OFF)
+          "Build the tests toload and compile the Root macros" ON)
 
 endfunction()
