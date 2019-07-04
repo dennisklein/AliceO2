@@ -40,14 +40,14 @@ function(add_root_dictionary target)
                         1
                         A
                         ""
-                        "LINKDEF;BASENAME"
+                        "LINKDEF"
                         "HEADERS")
   if(A_UNPARSED_ARGUMENTS)
     message(
       FATAL_ERROR "Unexpected unparsed arguments: ${A_UNPARSED_ARGUMENTS}")
   endif()
 
-  set(required_args "LINKDEF;BASENAME;HEADERS")
+  set(required_args "LINKDEF;HEADERS")
   foreach(required_arg IN LISTS required_args)
     if(NOT A_${required_arg})
       message(
@@ -80,8 +80,22 @@ function(add_root_dictionary target)
     endif()
   endforeach()
 
-  set(dictionaryFile ${CMAKE_CURRENT_BINARY_DIR}/G__${A_BASENAME}Dict.cxx)
-  set(pcmFile G__${A_BASENAME}Dict_rdict.pcm)
+  # Generate the pcm and rootmap files alongside the library
+  get_property(lib_output_dir TARGET ${target} PROPERTY LIBRARY_OUTPUT_DIRECTORY)
+  if(NOT lib_output_dir)
+    set(lib_output_dir ${CMAKE_CURRENT_BINARY_DIR})
+  endif()
+
+  # Define the names of generated files
+  get_property(basename TARGET ${target} PROPERTY OUTPUT_NAME)
+  if(NOT basename)
+    set(basename ${target})
+  endif()
+  set(dictionary G__${basename})
+  set(dictionaryFile ${CMAKE_CURRENT_BINARY_DIR}/${dictionary}.cxx)
+  set(pcmTarget lib${basename})
+  set(pcmFile ${lib_output_dir}/${pcmTarget}_rdict.pcm)
+  set(rootmapFile ${lib_output_dir}/lib${basename}.rootmap)
 
   # get the list of compile_definitions and split it into -Dxxx pieces but only
   # if non empty
@@ -98,24 +112,19 @@ function(add_root_dictionary target)
     set(LD_LIBRARY_PATH "${LD_LIBRARY_PATH}:$ENV{GCC_TOOLCHAIN_ROOT}/lib64")
   endif()
 
-  # Generate the pcm and rootmap files alongside the library
-  get_property(lib_output_dir TARGET ${target} PROPERTY LIBRARY_OUTPUT_DIRECTORY)
-  if(NOT lib_output_dir)
-    set(lib_output_dir ${CMAKE_CURRENT_BINARY_DIR})
-  endif()
-
   # add a custom command to generate the dictionary using rootcling
   # cmake-format: off
   add_custom_command(
-    OUTPUT ${dictionaryFile}
+    OUTPUT ${dictionaryFile} ${pcmFile} ${rootmapFile}
     VERBATIM
     COMMAND
     ${CMAKE_COMMAND} -E env LD_LIBRARY_PATH=${LD_LIBRARY_PATH} ${ROOT_rootcling_CMD}
       -f
       ${dictionaryFile}
       -inlineInputHeader
-      -rmf ${lib_output_dir}/lib${A_BASENAME}.rootmap
+      -rmf ${rootmapFile}
       -rml $<TARGET_FILE:${target}>
+      -s ${pcmTarget}
       $<GENEX_EVAL:-I$<JOIN:$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>,\;-I>>
       # the generator expression above gets the list of all include 
       # directories that might be required using the transitive dependencies 
@@ -123,7 +132,7 @@ function(add_root_dictionary target)
       "${defs}"
       ${incdirs} ${headers}
     COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/${pcmFile} ${lib_output_dir}/${pcmFile}
+    ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/${pcmTarget}_rdict.pcm ${pcmFile}
     COMMAND_EXPAND_LISTS
     DEPENDS ${headers})
   # cmake-format: on
@@ -153,8 +162,8 @@ function(add_root_dictionary target)
 
   # will install the rootmap and pcm files alongside the target's lib
   get_filename_component(dict ${dictionaryFile} NAME_WE)
-  install(FILES ${lib_output_dir}/lib${A_BASENAME}.rootmap
-                ${lib_output_dir}/${dict}_rdict.pcm
+  install(FILES ${rootmapFile}
+                ${pcmFile}
           DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 endfunction()
