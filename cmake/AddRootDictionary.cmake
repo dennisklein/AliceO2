@@ -98,8 +98,10 @@ function(add_root_dictionary target)
     set(LD_LIBRARY_PATH "${LD_LIBRARY_PATH}:$ENV{GCC_TOOLCHAIN_ROOT}/lib64")
   endif()
 
-  if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  # Generate the pcm and rootmap files alongside the library
+  get_property(lib_output_dir TARGET ${target} PROPERTY LIBRARY_OUTPUT_DIRECTORY)
+  if(NOT lib_output_dir)
+    set(lib_output_dir ${CMAKE_CURRENT_BINARY_DIR})
   endif()
 
   # add a custom command to generate the dictionary using rootcling
@@ -112,7 +114,7 @@ function(add_root_dictionary target)
       -f
       ${dictionaryFile}
       -inlineInputHeader
-      -rmf ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/lib${A_BASENAME}.rootmap
+      -rmf ${lib_output_dir}/lib${A_BASENAME}.rootmap
       -rml $<TARGET_FILE:${target}>
       $<GENEX_EVAL:-I$<JOIN:$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>,\;-I>>
       # the generator expression above gets the list of all include 
@@ -121,7 +123,7 @@ function(add_root_dictionary target)
       "${defs}"
       ${incdirs} ${headers}
     COMMAND
-    ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/${pcmFile} ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${pcmFile}
+    ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/${pcmFile} ${lib_output_dir}/${pcmFile}
     COMMAND_EXPAND_LISTS
     DEPENDS ${headers})
   # cmake-format: on
@@ -151,8 +153,8 @@ function(add_root_dictionary target)
 
   # will install the rootmap and pcm files alongside the target's lib
   get_filename_component(dict ${dictionaryFile} NAME_WE)
-  install(FILES ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/lib${A_BASENAME}.rootmap
-                ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${dict}_rdict.pcm
+  install(FILES ${lib_output_dir}/lib${A_BASENAME}.rootmap
+                ${lib_output_dir}/${dict}_rdict.pcm
           DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 endfunction()
