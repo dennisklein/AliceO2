@@ -35,7 +35,7 @@ include_guard()
 # Note also that the generated dictionary is added to PRIVATE SOURCES list of
 # the target.
 #
-function(add_root_dictionary)
+function(add_root_dictionary target)
   cmake_parse_arguments(PARSE_ARGV
                         1
                         A
@@ -51,8 +51,6 @@ function(add_root_dictionary)
     message(
       FATAL_ERROR "Wrong number of arguments. All arguments are required.")
   endif()
-
-  set(target ${ARGV0})
 
   # check all given filepaths are relative ones
   foreach(h ${A_HEADERS} ${A_LINKDEF})
