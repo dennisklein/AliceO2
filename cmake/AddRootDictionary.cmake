@@ -47,10 +47,13 @@ function(add_root_dictionary target)
       FATAL_ERROR "Unexpected unparsed arguments: ${A_UNPARSED_ARGUMENTS}")
   endif()
 
-  if(${ARGC} LESS 4)
-    message(
-      FATAL_ERROR "Wrong number of arguments. All arguments are required.")
-  endif()
+  set(required_args "LINKDEF;BASENAME;HEADERS")
+  foreach(required_arg IN LISTS required_args)
+    if(NOT A_${required_arg})
+      message(
+        FATAL_ERROR "Missing required argument: ${required_arg}")
+    endif()
+  endforeach()
 
   # check all given filepaths are relative ones
   foreach(h ${A_HEADERS} ${A_LINKDEF})
